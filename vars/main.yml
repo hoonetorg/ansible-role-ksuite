@@ -1,0 +1,21 @@
+---
+# Infomaniak desktop apps for Linux (all AppImages, x86_64 only). release_url: JSON with the current version,
+# release_keys: names of its Linux x86_64 entry (downloadurl), tried in order, first existing wins - Infomaniak
+# renames them (kChat 2026-10: linux → linux-amd64). checksum: sha256 = <downloadurl>.sha256 (kDrive), electron =
+# sha512 in latest-linux.yml next to the AppImage (electron-builder). name: file name in ksuite.dir.
+ksuite_catalog:
+  kdrive:
+    name: kDrive
+    release_url: https://www.infomaniak.com/drive/latest
+    release_keys: [linux-amd64]
+    checksum: sha256
+  kchat:
+    name: kChat
+    release_url: https://www.infomaniak.com/kchat/latest
+    release_keys: [linux-amd64, linux]
+    checksum: electron
+  kmeet:
+    name: kMeet
+    release_url: https://www.infomaniak.com/kmeet/latest
+    release_keys: [linux-amd64, linux]
+    checksum: electron

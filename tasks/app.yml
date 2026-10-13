@@ -1,0 +1,80 @@
+---
+- name: "{{ ksuite_app.name }}: install"
+  when: ksuite_app_id in ksuite_final.apps
+  block:
+    - name: "{{ ksuite_app.name }}: current version published by Infomaniak"
+      ansible.builtin.uri:
+        url: "{{ ksuite_app.release_url }}"
+        return_content: true
+      register: ksuite_release
+      check_mode: false               # read only; --check shows the real result
+
+    - name: "{{ ksuite_app.name }}: Linux entry in the release JSON"
+      ansible.builtin.set_fact:
+        ksuite_release_key: "{{ ksuite_app.release_keys | select('in', ksuite_release.json) | first | default('') }}"
+
+    - name: "{{ ksuite_app.name }}: Linux entry found"
+      ansible.builtin.assert:
+        that:
+          - ksuite_release_key | length > 0
+          - ksuite_release.json[ksuite_release_key].downloadurl is defined
+        fail_msg: >-
+          ksuite: {{ ksuite_app.name }}: none of {{ ksuite_app.release_keys | join(', ') }} (with downloadurl) in
+          {{ ksuite_app.release_url }} - Infomaniak probably renamed it, the JSON now has:
+          {{ ksuite_release.json.keys() | join(', ') }} → adjust release_keys in vars/main.yml
+        quiet: true
+
+    - name: "{{ ksuite_app.name }}: download URL"
+      ansible.builtin.set_fact:
+        ksuite_url: "{{ ksuite_release.json[ksuite_release_key].downloadurl }}"
+
+    - name: "{{ ksuite_app.name }}: checksum from <downloadurl>.sha256"
+      ansible.builtin.set_fact:
+        ksuite_checksum: "sha256:{{ ksuite_url }}.sha256"
+      when: ksuite_app.checksum == 'sha256'
+
+    - name: "{{ ksuite_app.name }}: checksum from latest-linux.yml"
+      when: ksuite_app.checksum == 'electron'
+      block:
+        - name: "{{ ksuite_app.name }}: latest-linux.yml"
+          ansible.builtin.uri:
+            url: "{{ ksuite_url | dirname }}/latest-linux.yml"
+            return_content: true
+          register: ksuite_update_info
+          check_mode: false
+
+        # sha512 is base64 there, get_url wants hex
+        - name: "{{ ksuite_app.name }}: sha512 as hex"
+          ansible.builtin.command:
+            argv:
+              - python3
+              - -c
+              - import base64, sys; print(base64.b64decode(sys.argv[1]).hex())
+              - >-
+                {{ (ksuite_update_info.content | from_yaml).files
+                | selectattr('url', 'equalto', ksuite_url | basename) | map(attribute='sha512') | first }}
+          register: ksuite_sha512
+          changed_when: false
+          check_mode: false
+
+        - name: "{{ ksuite_app.name }}: checksum"
+          ansible.builtin.set_fact:
+            ksuite_checksum: "sha512:{{ ksuite_sha512.stdout | trim }}"
+
+    # downloads only when the file is missing or its checksum differs (= update); the new file replaces the old
+    # one atomically, running instances keep the old one until they restart
+    - name: "{{ ksuite_app.name }}: AppImage"
+      ansible.builtin.get_url:
+        url: "{{ ksuite_url }}"
+        dest: "{{ ksuite_appimage }}"
+        checksum: "{{ ksuite_checksum }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+# not in apps → the AppImage is removed (user data in the homes stays)
+- name: "{{ ksuite_app.name }}: remove"
+  ansible.builtin.file:
+    path: "{{ ksuite_appimage }}"
+    state: absent
+  when: ksuite_app_id not in ksuite_final.apps
